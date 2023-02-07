@@ -1,0 +1,16 @@
+
+postgresql_backup_base: /var/lib/pg_backup
+postgresql_backup_script: "{{ postgresql_backup_base }}/postgresql_backup.sh"
+postgresql_backup_base_script: "{{ postgresql_backup_base }}/postgresql_base_backup.sh"
+postgresql_backup_BACKUP_KEY_PUB_FILE: "{{ postgresql_backup_base }}/backup_key.pem.pub"
+postgresql_backup_DB_USER: "postgres"
+postgresql_backup_S3_BUCKET_NAME: backup
+postgresql_backup_aws_region: eu-central-1
+postgresql_backup_with_credentials: no
+postgresql_backup_aws_access_key_id: xxx
+postgresql_backup_aws_secret_access_key: xxx
+postgresql_backup_timeout_each_db: 36000
+postgresql_backup_base_timeout: 36000
+postgresql_backup_max_rate: 50M
+
+postgresql_backup_node_exporter_textfile_dir: /var/lib/node_exporter

@@ -1,0 +1,38 @@
+#!/bin/bash
+
+TSTART=$(date +%s)
+echo "$0 started at `date`"
+echo postgresql_backup_status 0.5 | sponge {{ postgresql_backup_node_exporter_textfile_dir }}/postgresql_backup_status.prom
+#
+(
+    set -e -o pipefail
+    for DB in $(psql -U {{ postgresql_backup_DB_USER }} \
+                    --no-align --tuples-only \
+                    -c 'SELECT datname FROM pg_database WHERE datistemplate = false;'
+               ); do
+        TS=`date +%Y-%m-%d__%H-%M-%S`
+        DEST="s3://{{ postgresql_backup_S3_BUCKET_NAME }}/{{ inventory_hostname }}/$DB-$TS.sql.gz.enc"
+        echo "dumping $DB database to $DEST"
+        JOBS=$( echo $(( `nproc` / 4 )) | awk '{print ($1)?$1:1}' )
+        timeout {{ postgresql_backup_timeout_each_db }} \
+          pg_dump $DB -U {{ postgresql_backup_DB_USER }} \
+            | pigz -c --fast --processes $JOBS \
+            | openssl smime -encrypt -aes256 -binary -stream -outform DEM {{ postgresql_backup_BACKUP_KEY_PUB_FILE }} \
+            | pv --interval 10 --numeric --rate --bytes \
+            | aws s3 cp - $DEST
+    done
+)
+X=$?
+TSTOP=$(date +%s)
+T=$(( TSTOP - TSTART ))
+if [ "$X" != "0" ]; then
+    echo "$0 failed with error at `date`"
+    echo postgresql_backup_status 0 | sponge {{ postgresql_backup_node_exporter_textfile_dir }}/postgresql_backup_status.prom
+    exit $X
+else
+    echo "$0 all done at `date`"
+    echo postgresql_backup_status 1          | sponge {{ postgresql_backup_node_exporter_textfile_dir }}/postgresql_backup_status.prom
+    echo postgresql_backup_success_ts $TSTOP | sponge {{ postgresql_backup_node_exporter_textfile_dir }}/postgresql_backup_success_ts.prom
+    echo postgresql_backup_time $T           | sponge {{ postgresql_backup_node_exporter_textfile_dir }}/postgresql_backup_time.prom
+fi
+

@@ -1,0 +1,116 @@
+- name: postgresql-backup/tasks/main.yml - install tools
+  apt:
+    name:
+      - awscli
+      - pigz
+      - pv
+      - moreutils
+    state: present
+
+- name: postgresql-backup/tasks/main.yml
+  tags: postgresql-backup
+  file:
+    path: "{{ postgresql_backup_base }}"
+    state: directory
+    owner: postgres
+
+- name: postgresql-backup/tasks/main.yml - tilda dot aws
+  tags: postgresql-backup
+  file:
+    path: ~/.aws
+    state: directory
+    mode: "0700"
+
+- name: postgresql-backup/tasks/main.yml - create postgresql_backup_node_exporter_textfile_dir
+  tags: postgresql-backup
+  file:
+    path: "{{ postgresql_backup_node_exporter_textfile_dir }}"
+    state: directory
+    mode: "0775"
+
+- name: postgresql-backup/tasks/main.yml - put aws config
+  tags: postgresql-backup
+  when: not postgresql_backup_with_credentials
+  blockinfile:
+    path: ~/.aws/config
+    create: yes
+    mode: "0600"
+    state: present
+    block: |
+      [profile default]
+      region = {{ postgresql_backup_aws_region }}
+      s3 =
+          multipart_chunksize = 200MB
+
+- name: postgresql-backup/tasks/main.yml - put aws config with credentials
+  tags: postgresql-backup
+  when: postgresql_backup_with_credentials
+  blockinfile:
+    path: ~/.aws/config
+    create: yes
+    mode: "0600"
+    state: present
+    block: |
+      [profile default]
+      region = {{ postgresql_backup_aws_region }}
+      aws_access_key_id = {{ postgresql_backup_aws_access_key_id }}
+      aws_secret_access_key = {{ postgresql_backup_aws_secret_access_key }}
+      s3 =
+          multipart_chunksize = 200MB
+
+- name: postgresql-backup/tasks/main.yml - put "backup_key.pem.pub"
+  tags: postgresql-backup
+  copy:
+    src: "backup_key.pem.pub"
+    dest: "{{ postgresql_backup_BACKUP_KEY_PUB_FILE }}"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+
+- name: postgresql-backup/tasks/main.yml - put backup script
+  tags: postgresql-backup
+  template:
+    src: "postgresql_backup.sh.j2"
+    dest: "{{ postgresql_backup_script }}"
+    owner: postgres
+    group: postgres
+    mode: 0744
+
+- name: postgresql-backup/tasks/main.yml - put base_backup script
+  tags: postgresql-backup
+  template:
+    src: "postgresql_base_backup.sh.j2"
+    dest: "{{ postgresql_backup_base_script }}"
+    owner: postgres
+    group: postgres
+    mode: 0744
+
+- name: postgresql-backup/tasks/main.yml - set cron PATH env
+  cron:
+    name: PATH
+    env: yes
+    job: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+
+- name: postgresql-backup/tasks/main.yml - set cron job
+  cron:
+    name: backup postgres databases
+    minute: "0"
+    hour: "0"
+    state: absent
+    job: |
+      flock {{ postgresql_backup_base }}.lock {{ postgresql_backup_script }} >> /var/log/postgresql/backup.log 2>&1
+
+- name: postgresql-backup/tasks/main.yml - set cron job for base backup
+  cron:
+    name: basebackup postgres databases
+    minute: "0"
+    hour: "0"
+    day: "*/2"
+    job: |
+      flock {{ postgresql_backup_base }}.lock {{ postgresql_backup_base_script }} >> /var/log/postgresql/backup.log 2>&1
+
+- name: check the last backup status
+  shell: |
+    cat {{ postgresql_backup_node_exporter_textfile_dir }}/postgresql_backup_status.prom \
+      | grep 'postgresql_backup_status 1'
+
